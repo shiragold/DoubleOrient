@@ -72,7 +72,7 @@ def align(img1, img2):
 		shrink(img1,jump)
 
 
-def shrink(img, jump):
+def _shrink(img, jump):
 	N = len(img)
 	it = 0
 	for i in range(N-1):
@@ -89,10 +89,6 @@ def shrink(img, jump):
 		it += 1
 
 
-def distance(p1, p2):
-	return ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
-
-
 def curv(img):
 	print("Curving")
 	N = len(img)
@@ -103,11 +99,7 @@ def curv(img):
 			if img[i][j]:
 				count += 1
 				if not curv:
-					radius = []
-					for it in range(max(i-1,0),min(i+2, N)):
-						for jt in range(max(j-1,0),min(j+2, N)):
-							if (it != i or jt != j) and img[it][jt]:
-								radius.append((it, jt))
+					radius = neighbours(img, i, j)
 					if len(radius) == 1:
 						curv.append((i,j))
 						curv.append(radius[0])
@@ -117,11 +109,14 @@ def curv(img):
 		vi = (pi + di >= 0 and pi + di < N)
 		vj = (pj + dj >= 0 and pj + dj < N)
 		
-		if di != 0 and vi and img[pi + di][pj] and ((pi+di, pj) not in curv or neighbours(img, pi+di, pj) > 2):
+		n1 = neighbours(img, pi+di, pj) 
+		n2 = neighbours(img, pi, pj+dj)
+		n3 = neighbours(img, pi+di, pj+dj)
+		if di != 0 and vi and img[pi + di][pj] and ((pi+di, pj) not in curv or len(n1) > 2):
 			curv.append((pi+di, pj))
-		elif dj != 0 and vj and img[pi][pj+dj] and ((pi, pj+dj) not in curv or neighbours(img, pi, pj+dj) > 2):
+		elif dj != 0 and vj and img[pi][pj+dj] and ((pi, pj+dj) not in curv or len(n2) > 2):
 			curv.append((pi, pj+dj))
-		elif vi and vj and img[pi+di][pj+dj] and ((pi+di,pj+dj) not in curv or neighbours(img, pi+di, pj+dj) > 2):
+		elif vi and vj and img[pi+di][pj+dj] and ((pi+di,pj+dj) not in curv or len(n3) > 2):
 			curv.append((pi+di,pj+dj))
 		elif di == 0 and pi < N-1 and img[pi+1][pj]:
 			curv.append((pi+1, pj))
@@ -159,25 +154,102 @@ def curv(img):
 	return curv
 
 
-def neighbours(img, i, j):
+def _neighbours(img, i, j):
 	N = len(img)
-	count = 0
+	neighbours = []
 	for it in range(i-1,min(i+2, N)):
 		for jt in range(max(j-1,0),min(j+2, N)):
 			if (it != i or jt != j) and img[it][jt]:
-				count += 1
-	return count
+				neighbours.append((it,jt))
+	return neighbours
+
+
+def curv_path(img):
+	N = len(img)
+	start, end = None, None
+	for i in range(N):
+		for j in range(N):
+			if img[i][j]:
+				n = neighbours(img, i, j)
+				if len(n) == 1:
+					if not start:
+						start = (i,j)
+					else:
+						end = (i,j)
+	parent = {}
+	used = [start]
+	q = [start]
+	while q:
+		curr = q.pop()
+		curr_neighbours = neighbours(img, curr[0], curr[1])
+		for n in curr_neighbours:
+			if n not in used:
+				used.append(n)
+				q.insert(0, n)
+				parent[n] = curr
+
+	curv = []
+	if end in parent:
+		while end != start:
+			curv.append(end)
+			end = parent[end]
+	curv.reverse()
+	return curv
+
+
+def cylinder(img):
+	print("Smudging")
+	N = len(img1)
+	points = []
+	for i in range(N):
+		for j in range(N):
+			if img[i][j]:
+				k = 0
+				while (k < N):
+					if k % 20 == 0:
+						points.append((i,j,k))
+					k += 1
+	return points
 
 
 def intersect(img1, img2):
+	print("Intersecting")
 	N = len(img1)
-	cube = np.zeros((N,N,N))
+	cube_all = np.zeros((N,N,N))
+	points = []
 	for i in range(N):
 		for j in range(N):
 			for k in range(N):
 				if img1[i][j] and img2[i][k]:
-					cube[i][j][k] = 1
+					cube_all[i][j][k] = 1
+					points.append((i,j,k))
+	starters = []
+	for p in points:
+		if len(_neighbours3d(cube_all, p[0], p[1], p[2])) == 1:
+			starters.append(p)
+	cmax = []
+	for p in starters:
+		cc = _select_cc(cube_all, p)
+		if len(cc) > len(cmax):
+			cmax = cc
+
+	cube = np.zeros((N,N,N))
+	for p in cmax:
+		cube[p[0]][p[1]][p[2]] = 1
 	return cube
+
+
+def _select_cc(cube, start):
+	used = [start]
+	q = [start]
+	while q:
+		curr = q.pop()
+		curr_neighbours = _neighbours3d(cube, curr[0], curr[1], curr[2])
+		for n in curr_neighbours:
+			if n not in used:
+				used.append(n)
+				q.insert(0, n)
+	return used
 
 
 def select(curv1, curv2, img1, img2, cube_all):
@@ -202,26 +274,27 @@ def select(curv1, curv2, img1, img2, cube_all):
 
 			if ksub < 0 and kadd == N:
 				k = prev[2]
-			elif ksub < 0:
+			elif ksub < 0 or abs(kadd - prev[2]) <= 1:
 				k = kadd
-			elif kadd == N:
+			elif kadd == N or abs(ksub - prev[2]) <= 1:
 				k = ksub
-			elif kadd - ksub <= 5 and neighbours(img2, prev[0], prev[2]) > 2:
+			elif kadd - ksub <= 3 and neighbours(img2, prev[0], prev[2]) > 2:
 				k = kadd if not sum([col[kadd] for col in cube[i]]) else ksub
 			# elif select_gap((i,k),(i,kadd),curv2) >= select_gap((i,k),(i,ksub),curv2):
-			elif k-ksub > kadd-k:
-				k = kadd
-			else:
+			elif k-ksub < kadd-k:
 				k = ksub
+			else:
+				k = kadd
 			
 			if prev and abs(k - prev[2]) > 1:
 				if abs(k - prev[2]) > 1:
 					start = (i, j, prev[2])
 					end = (i, j, k)
-					points.extend(select_path(cube, cube_all, start, end))
+					points.extend(_select_path(cube, cube_all, start, end))
 					prev = (i, j, points[-1][2])
 				if abs(k - prev[2]) > 1:
 					print(k - prev[2])
+				
 		cube[i][j][k] = 1
 		prev = (i, j, k)
 		points.append(prev)
@@ -242,13 +315,13 @@ def select(curv1, curv2, img1, img2, cube_all):
 			while jsub >= 0 and not img1[i][jsub]:
 				jsub -= 1
 
-			if jsub < 0 and jadd == N:
+			if jsub >= 0 or jadd < N:
 				j = prev[1]
-			elif jsub < 0:
+			elif jsub < 0 or abs(jadd - prev[1]) <= 1:
 				j = jadd
-			elif jadd == N:
+			elif jadd == N or abs(jsub - prev[1]) <= 1:
 				j = jsub
-			elif jadd - jsub <= 4 and neighbours(img1, prev[0], prev[1]) > 2:
+			elif jadd - jsub <= 3 and neighbours(img1, prev[0], prev[1]) > 2:
 				j = jadd if sum(cube[i][jadd]) else jsub
 			# elif select_gap((i,j),(i,jadd),curv1) >= select_gap((i,j),(i,jsub),curv1):
 			elif j-jsub < jadd-j:
@@ -260,10 +333,11 @@ def select(curv1, curv2, img1, img2, cube_all):
 				if abs(j - prev[1]) > 1:
 					start = (i, prev[1], k)
 					end = (i, j, k)
-					points.extend(select_path(cube, cube_all, start, end))
+					points.extend(_select_path(cube, cube_all, start, end))
 					prev = (i, points[-1][1], k)
 				if abs(j - prev[1]) > 1:
 					print(j-prev[1])
+
 		cube[i][j][k] = 1
 		prev = (i, j, k)
 		points.append(prev)
@@ -272,7 +346,7 @@ def select(curv1, curv2, img1, img2, cube_all):
 	return points
 
 
-def neighbours3d(cube, i, j, k):
+def _neighbours3d(cube, i, j, k):
 	N = len(cube)
 	n = []
 	for it in range(max(i-1, 0), min(i+2, N)):
@@ -283,13 +357,13 @@ def neighbours3d(cube, i, j, k):
 	return n
 
 
-def select_path(cube, cube_all, start, end):
+def _select_path(cube, cube_all, start, end):
 	parent = {}
 	used = [start]
 	q = [start]
 	while q:
 		curr = q.pop()
-		curr_neighbours = neighbours3d(cube_all, curr[0], curr[1], curr[2])
+		curr_neighbours = _neighbours3d(cube_all, curr[0], curr[1], curr[2])
 		for n in curr_neighbours:
 			if n not in used:
 				used.append(n)
@@ -308,41 +382,6 @@ def select_path(cube, cube_all, start, end):
 	return points
 
 
-def collect(prev, cube):
-	N = len(cube)
-	points = [prev]
-	cube[prev[0]][prev[1]][prev[2]] = 0
-	current = prev
-	found = True
-	while found:
-		found = False
-		for it in range(max(current[0]-1, 0), min(current[0]+2, N)):
-			for jt in range(max(current[1]-1, 0), min(current[1]+2, N)):
-				for kt in range(max(current[1]-1, 0), min(current[2]+2, N)):
-					if cube[it][jt][kt] and (it,jt,kt) != prev and (it,jt,kt) != current:
-						found = True
-						prev = current
-						current = (it,jt,kt)
-						points.append(current)
-						cube[it][jt][kt] = 0
-
-	return points
-
-
-def plot_cube(cube):
-	N = len(cube)
-	x, y, z = [], [], []
-	for i in range(N):
-		for j in range(N):
-			for k in range(N):
-				if cube[i][j][k]:
-					x.append(k);y.append(j);z.append(i)
-	fig = plt.figure()
-	ax = fig.add_subplot(111, projection='3d')
-	ax.scatter(x,y,z,s=1)
-	plt.show()
-
-
 def plot_bits(img1, img2):
 	fig = plt.figure()
 	ax = fig.add_subplot(111, projection='3d')
@@ -354,7 +393,7 @@ def plot_bits(img1, img2):
 				x.append(j); y.append(0); z.append(i)
 			if img2[i][j]:
 				x.append(0); y.append(j); z.append(i)
-	ax.scatter(x, y, z, s=0.5)
+	ax.scatter(x, y, z, s=1)
 	plt.show()
 
 
@@ -371,6 +410,37 @@ def plot_curv(curv1, curv2):
 
 	ax.plot(x1, y1, z1)
 	ax.plot(x2, y2, z2)
+	plt.show()
+
+
+def plot_cube(cube):
+	N = len(cube)
+	x, y, z = [], [], []
+	for i in range(N):
+		for j in range(N):
+			for k in range(N):
+				if cube[i][j][k]:
+					x.append(k);y.append(j);z.append(i)
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	ax.scatter(x,y,z,s=1)
+	plt.show()
+
+
+def plot_cyls(cyl1, cyl2):
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	
+	x, y, z = [], [], []
+	for i in range(len(cyl1)):
+		x.append(cyl1[i][1]); y.append(cyl1[i][2]); z.append(cyl1[i][0])
+	ax.scatter(x, y, z, s=10, c='r')
+
+	x, y, z = [], [], []
+	for i in range(len(cyl2)):
+		x.append(cyl2[i][2]); y.append(cyl2[i][1]); z.append(cyl2[i][0])
+	
+	ax.scatter(x, y, z, s=10, c='g')
 	plt.show()
 
 
@@ -409,5 +479,5 @@ def main_load(f1, f2):
 
 # main_load("seal.png", "whale.png")
 # main_load("rooster.png", "ostrich.png")
-# main_load("fish.png", "crab.png")
 # main_load("deer.png", "kangaroo.png")
+# main_load("fish.png", "crab.png")
